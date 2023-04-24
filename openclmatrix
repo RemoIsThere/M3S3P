@@ -1,0 +1,11 @@
+__kernel void matrixMul(__global float* C, __global float* A, __global float* B, int wA, int wB) {
+    int x = get_global_id(0);
+    int y = get_global_id(1);
+    float value = 0;
+    for (int k = 0; k < wA; ++k) {
+        float elementA = A[y * wA + k];
+        float elementB = B[k * wB + x];
+        value += elementA * elementB;
+    }
+    C[y * wB + x] = value;
+}
