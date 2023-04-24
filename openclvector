@@ -1,0 +1,62 @@
+#include <CL/cl.hpp>
+#include <vector>
+#include <iostream>
+#include <chrono>
+
+int main() {
+    // Set up OpenCL context, queue and program
+    std::vector<cl::Platform> platforms;
+    cl::Platform::get(&platforms);
+    cl::Context context(CL_DEVICE_TYPE_GPU, platforms[0].getInfo<CL_PLATFORM_CONTEXT_PLATFORM>());
+    std::vector<cl::Device> devices = context.getInfo<CL_CONTEXT_DEVICES>();
+    cl::CommandQueue queue(context, devices[0]);
+    std::string source = "__kernel void vectorAdd(__global float* C, __global float* A, __global float* B, int n) {"
+                         "int i = get_global_id(0);"
+                         "if (i < n) {"
+                         "C[i] = A[i] + B[i];"
+                         "}"
+                         "}";
+    cl::Program program(context, source);
+    program.build(devices);
+
+    // Set up vectors
+    int n = 1000000;
+    std::vector<float> A(n);
+    std::vector<float> B(n);
+    std::vector<float> C(n);
+    for (int i = 0; i < n; ++i) {
+        A[i] = i;
+        B[i] = i;
+    }
+
+    // Set up buffers
+    cl::Buffer bufferA(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * A.size(), A.data());
+    cl::Buffer bufferB(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * B.size(), B.data());
+    cl::Buffer bufferC(context, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, sizeof(float) * C.size());
+
+    // Set up kernel
+    cl::Kernel kernel(program, "vectorAdd");
+    kernel.setArg(0, bufferC);
+    kernel.setArg(1, bufferA);
+    kernel.setArg(2, bufferB);
+    kernel.setArg(3, n);
+
+    // Run kernel and measure execution time
+    auto start = std::chrono::high_resolution_clock::now();
+    queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(n), cl::NullRange);
+    queue.finish();
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    std::cout << "Execution time: " << elapsed.count() << " seconds\n";
+
+    // Read result
+    queue.enqueueReadBuffer(bufferC, CL_TRUE, 0, sizeof(float) * C.size(), C.data());
+
+    // Print result
+    for (int i = 0; i < 10; ++i) {
+        std::cout << C[i] << ' ';
+    }
+    std::cout << '\n';
+
+    return 0;
+}
