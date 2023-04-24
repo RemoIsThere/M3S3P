@@ -1,0 +1,69 @@
+#include <CL/cl.hpp>
+#include <vector>
+#include <iostream>
+
+int main() {
+    // Set up OpenCL context, queue and program
+    std::vector<cl::Platform> platforms;
+    cl::Platform::get(&platforms);
+    cl::Context context(CL_DEVICE_TYPE_GPU, platforms[0].getInfo<CL_PLATFORM_CONTEXT_PLATFORM>());
+    std::vector<cl::Device> devices = context.getInfo<CL_CONTEXT_DEVICES>();
+    cl::CommandQueue queue(context, devices[0]);
+    std::string source = "__kernel void matrixMul(__global float* C, __global float* A, __global float* B, int wA, int wB) {"
+                         "int x = get_global_id(0);"
+                         "int y = get_global_id(1);"
+                         "float value = 0;"
+                         "for (int k = 0; k < wA; ++k) {"
+                         "float elementA = A[y * wA + k];"
+                         "float elementB = B[k * wB + x];"
+                         "value += elementA * elementB;"
+                         "}"
+                         "C[y * wB + x] = value;"
+                         "}";
+    cl::Program program(context, source);
+    program.build(devices);
+
+    // Set up matrices
+    int wA = 3;
+    int hA = 2;
+    int wB = 2;
+    int hB = 3;
+    std::vector<float> A(hA * wA);
+    std::vector<float> B(hB * wB);
+    std::vector<float> C(hA * wB);
+    for (int i = 0; i < hA * wA; ++i) {
+        A[i] = i;
+    }
+    for (int i = 0; i < hB * wB; ++i) {
+        B[i] = i;
+    }
+
+    // Set up buffers
+    cl::Buffer bufferA(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * A.size(), A.data());
+    cl::Buffer bufferB(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * B.size(), B.data());
+    cl::Buffer bufferC(context, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, sizeof(float) * C.size());
+
+    // Set up kernel
+    cl::Kernel kernel(program, "matrixMul");
+    kernel.setArg(0, bufferC);
+    kernel.setArg(1, bufferA);
+    kernel.setArg(2, bufferB);
+    kernel.setArg(3, wA);
+    kernel.setArg(4, wB);
+
+    // Run kernel
+    queue.enqueueNDRangeKernel(kernel, cl::NullRange, cl::NDRange(wB, hA), cl::NullRange);
+
+    // Read result
+    queue.enqueueReadBuffer(bufferC, CL_TRUE, 0, sizeof(float) * C.size(), C.data());
+
+    // Print result
+    for (int y = 0; y < hA; ++y) {
+        for (int x = 0; x < wB; ++x) {
+            std::cout << C[y * wB + x] << ' ';
+        }
+        std::cout << '\n';
+    }
+
+    return 0;
+}
